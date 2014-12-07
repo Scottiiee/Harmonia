@@ -68,12 +68,9 @@ public class Harmonia {
     final BigDecimal MIN_FUNDS_USD = new BigDecimal("50"); // minimum amount needed (USD) to lend
     final double millisecondsInDay = 86400000.0;
     
-    final String[] currencyArray = {"USD", "BTC", "LTC", "DRK", "TH1"};
-    final BigDecimal[] maxRateArray = {new BigDecimal("2555"), new BigDecimal("2555"), new BigDecimal("2555"), new BigDecimal("2555"), new BigDecimal("2555")}; // 7% per day * 365 days
-    final BigDecimal[] minRateArray = {new BigDecimal("10"), new BigDecimal("0"), new BigDecimal("0"), new BigDecimal("0"), new BigDecimal("0")}; // 10% per 365 days
-    final int[] maxDaysArray = {30, 30, 30, 30, 30}; // Max Days to lend
-
-    BigDecimal minFunds = MIN_FUNDS_USD;
+    final String[] currencyArray = {"USD", "BTC", "LTC", "TH1"};
+    final BigDecimal[] maxRateArray = {new BigDecimal("2555"), new BigDecimal("2555"), new BigDecimal("2555"), new BigDecimal("2555")}; // 7% per day * 365 days
+    final BigDecimal[] minRateArray = {new BigDecimal("10"), new BigDecimal("1.2775"), new BigDecimal("2.5"), new BigDecimal("0")}; // 10% per 365 days
 
     Date previousLoopIterationDate = new Date();
     
@@ -97,7 +94,13 @@ public class Harmonia {
         	final String currency = currencyArray[currencyIndex];
         	final BigDecimal maxRate = maxRateArray[currencyIndex];
         	final BigDecimal minRate = minRateArray[currencyIndex];
-        	final int maxDays = maxDaysArray[currencyIndex];
+        	
+            BigDecimal minFunds = MIN_FUNDS_USD;
+            if (currency.equalsIgnoreCase("USD")) {
+                minFunds = MIN_FUNDS_USD;
+            } else {
+                minFunds = new BigDecimal("0.2");
+            }
 
 			for (BitfinexBalancesResponse balance : balances) {
    			  if ("deposit".equalsIgnoreCase(balance.getType()) && currency.equalsIgnoreCase(balance.getCurrency())) {
@@ -125,7 +128,7 @@ public class Harmonia {
       	        activeCreditAmount = activeCreditAmount.add(credit.getAmount());
             	BigDecimal creditRate = credit.getRate();
 
-            	// Since we do not allow rates below MIN_RATE (which should be greater than zero)
+            	// Since we do not allow rates below minRate (which should be greater than zero)
             	// any 0 rate active credit is assumed to be at the flash return rate
             	if (BigDecimal.ZERO.compareTo(creditRate) == 0)
               	  creditRate = FRR;
@@ -192,7 +195,7 @@ public class Harmonia {
           	  if (bidFrr && !matchesCurrentOrder(activeOfferFrr, activeOfferAmount, activeOfferRate, true, inactiveFunds, BigDecimal.ZERO)) {
 
                 // Cancel existing orders and send new FRR order
-                cancelPreviousAndSendNewOrder(tradeService, activeOffers, true, inactiveFunds, BigDecimal.ZERO, FRR, currency, maxDays);
+                cancelPreviousAndSendNewOrder(tradeService, activeOffers, true, inactiveFunds, BigDecimal.ZERO, FRR, currency);
 
           	  } else { // flash return rate demanded by sellers, send a competitive fixed rate order
                 BigDecimal bestAskOutsideBestBid = maxRate;
@@ -229,7 +232,7 @@ public class Harmonia {
               // If the best offer is FRR, just sit with everyone else
               if (bestAskFrr && !matchesCurrentOrder(activeOfferFrr, activeOfferAmount, activeOfferRate, true, inactiveFunds, BigDecimal.ZERO)) {
                 // Cancel existing orders and send new FRR order
-                cancelPreviousAndSendNewOrder(tradeService, activeOffers, true, inactiveFunds, BigDecimal.ZERO, FRR, currency, maxDays);
+                cancelPreviousAndSendNewOrder(tradeService, activeOffers, true, inactiveFunds, BigDecimal.ZERO, FRR, currency);
 
               } else if (!bestAskFrr) {
                 // Best ask is not FRR, we need to send a competitive fixed rate
@@ -237,10 +240,10 @@ public class Harmonia {
                 if (bestAskOutsideBestBidAmount.compareTo(activeOfferAmount) == 0) {
                   // Don't stay out there alone
                   // Join second best ask outside of best bid
-                  cancelPreviousAndSendNewOrder(tradeService, activeOffers, false, inactiveFunds, secondBestAskOutsideBestBid, FRR, currency, maxDays);
+                  cancelPreviousAndSendNewOrder(tradeService, activeOffers, false, inactiveFunds, secondBestAskOutsideBestBid, FRR, currency);
                 } else if (!matchesCurrentOrder(activeOfferFrr, activeOfferAmount, activeOfferRate, false, inactiveFunds, bestAskOutsideBestBid)) {
                   // Join best ask outside of best bid
-                  cancelPreviousAndSendNewOrder(tradeService, activeOffers, false, inactiveFunds, bestAskOutsideBestBid, FRR, currency, maxDays);
+                  cancelPreviousAndSendNewOrder(tradeService, activeOffers, false, inactiveFunds, bestAskOutsideBestBid, FRR, currency);
                 } else {
                   System.out.println("Matched previous isFrr: " + activeOfferFrr + " amount: " + activeOfferAmount + " rate: " + activeOfferRate);
                 }
@@ -285,7 +288,7 @@ public class Harmonia {
     return true;
   }
 
-  private static void cancelPreviousAndSendNewOrder(BitfinexTradeServiceRaw tradeService, BitfinexOfferStatusResponse[] activeOffers, boolean isFrr, BigDecimal amount, BigDecimal rate, BigDecimal FRR, String currency, int maxDays) throws IOException {
+  private static void cancelPreviousAndSendNewOrder(BitfinexTradeServiceRaw tradeService, BitfinexOfferStatusResponse[] activeOffers, boolean isFrr, BigDecimal amount, BigDecimal rate, BigDecimal FRR, String currency) throws IOException {
     // Cancel existing orders
     if (activeOffers.length != 0) {
       for (BitfinexOfferStatusResponse offer : activeOffers) {
@@ -299,14 +302,14 @@ public class Harmonia {
     }
 
     if (isFrr) {
-      FloatingRateLoanOrder order = new FloatingRateLoanOrder(OrderType.ASK, currency, amount, maxDays, "", null, BigDecimal.ZERO);
+      FloatingRateLoanOrder order = new FloatingRateLoanOrder(OrderType.ASK, currency, amount, 30, "", null, BigDecimal.ZERO);
       System.out.println("Sending " + order.toString());
       tradeService.placeBitfinexFloatingRateLoanOrder(order, BitfinexOrderType.MARKET);
     } else {
       // Set the day period for somewhere between 2 and 30 days. We compare our order's rate to the flash return rate.
       // If we're at or below the FRR, set the day period to 2. If we're above, use the ratio of our rate to the FRR to
       // determine how many days we should offer with a cap of 30 using: (ourRate - FRR) / FRR * 30
-      int dayPeriod = Math.max(Math.min((int) ((rate.doubleValue() - FRR.doubleValue()) / FRR.doubleValue() * 30), maxDays), 2);
+      int dayPeriod = Math.max(Math.min((int) ((rate.doubleValue() - FRR.doubleValue()) / FRR.doubleValue() * 30), 30), 2);
 
       FixedRateLoanOrder order = new FixedRateLoanOrder(OrderType.ASK, currency, amount, dayPeriod, "", null, rate);
       System.out.println("Sending " + order.toString());
