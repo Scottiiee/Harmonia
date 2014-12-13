@@ -17,6 +17,7 @@ import com.xeiam.xchange.bitfinex.v1.dto.account.BitfinexBalancesResponse;
 import com.xeiam.xchange.bitfinex.v1.dto.marketdata.BitfinexLend;
 import com.xeiam.xchange.bitfinex.v1.dto.marketdata.BitfinexLendDepth;
 import com.xeiam.xchange.bitfinex.v1.dto.marketdata.BitfinexLendLevel;
+import com.xeiam.xchange.bitfinex.v1.dto.marketdata.BitfinexTicker;
 import com.xeiam.xchange.bitfinex.v1.dto.trade.BitfinexCreditResponse;
 import com.xeiam.xchange.bitfinex.v1.dto.trade.BitfinexOfferStatusResponse;
 import com.xeiam.xchange.bitfinex.v1.service.polling.BitfinexAccountServiceRaw;
@@ -65,7 +66,7 @@ public class Harmonia {
     BitfinexTradeServiceRaw tradeService = (BitfinexTradeServiceRaw) bfx.getPollingTradeService();
 
     
-    final BigDecimal MIN_FUNDS_USD = new BigDecimal("50"); // minimum amount needed (USD) to lend
+    final BigDecimal MIN_FUNDS_USD = new BigDecimal("50.0"); // minimum amount needed (USD) to lend
     final double millisecondsInDay = 86400000.0;
     
     final String[] currencyArray = {"USD", "BTC", "LTC", "TH1"};
@@ -95,15 +96,7 @@ public class Harmonia {
         	final BigDecimal maxRate = maxRateArray[currencyIndex];
         	final BigDecimal minRate = minRateArray[currencyIndex];
 
-
-            BigDecimal minFunds = MIN_FUNDS_USD;
-            if (currency.equalsIgnoreCase("USD")) {
-                minFunds = MIN_FUNDS_USD;
-            } else {
-                minFunds = new BigDecimal("0.2");
-            }
-
-
+        	
             for (BitfinexBalancesResponse balance : balances) {
               if ("deposit".equalsIgnoreCase(balance.getType()) && currency.equalsIgnoreCase(balance.getCurrency())) {
                 if (balance.getAmount().compareTo(BigDecimal.ZERO) == 0) {
@@ -119,8 +112,15 @@ public class Harmonia {
 			System.out.println("*******************************************************************");
 		    System.out.println(currency);
 
+		    
     		BitfinexLend[] lends = marketDataService.getBitfinexLends(currency, 0, 1);
-    
+    		
+    		BigDecimal minFunds = MIN_FUNDS_USD;
+            if (!currency.equalsIgnoreCase("USD")) {
+              BitfinexTicker ticker = marketDataService.getBitfinexTicker((currency).concat("USD"));
+         	  minFunds = MIN_FUNDS_USD.divide(ticker.getBid(), 3, BigDecimal.ROUND_UP);
+         	}
+
 	        Date currentLoopIterationDate = new Date();
      	    BigDecimal activeCreditAmount = BigDecimal.ZERO;
         	double activeCreditInterest = 0.0;
